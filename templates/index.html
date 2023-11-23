@@ -60,7 +60,7 @@ function undoLastOperation() {
             }
             break;
         case 'addLine':
-            mymap.removeLayer(lastOp eration.data);
+            mymap.removeLayer(lastOperation.data);
             var markerIndex = lineMarkers.indexOf(lastOperation.data);
             if (markerIndex > -1) {
                 lineMarkers.splice(markerIndex, 1);
