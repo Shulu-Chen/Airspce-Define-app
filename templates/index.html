@@ -4,24 +4,69 @@
     <title>Map Drawing App</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
     <style>
-        #mapid { height: 500px; }
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        #mapid {
+            width: 100%;
+            height: 100%;
+        }
+
+        .button-container {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start; /* Align items to the start of the container (left side) */
+            position: absolute;
+            top: 100px;
+            left: 10px;
+            z-index: 1000;
+        }
+
+        .button-container button {
+                width: 140px; /* Specific width for all buttons */
+                margin-bottom: 10px;
+                text-align: center;
+                padding: 5px 10px;
+        }
+
+        #coordsOutput {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            z-index: 1000;
+            width: 300px; /* Set the width of the textarea */
+            height: 150px; /* Set the height of the textarea */
+            padding: 5px; /* Optional: adds some internal spacing */
+            font-size: 14px; /* Optional: adjusts the font size */
+            resize: horizontal; /* Optional: disables resizing */
+        }
+
     </style>
 </head>
 <body>
 <div id="mapid"></div>
-<button id="addPointBtn">Pin Point</button>
-<button id="addLineBtn">Draw Line</button>
-<button id="drawCircleBtn">Draw Circle</button>
-<button id="showCoordsBtn">Show Coordinates</button>
-<button id="clearMarksBtn">Clear Map</button>
-<button id="undoBtn">Undo</button>
+<div class="button-container">
+    <button id="addPointBtn">Pin Point</button>
+    <button id="addLineBtn">Draw Route</button>
+    <button id="drawCircleBtn">Draw Holding Patt.</button>
+    <button id="drawRefCircleBtn">Draw Ref Circle</button>
+    <button id="showCoordsBtn">Show Coordinates</button>
+    <button id="saveCoordsBtn">Save</button>
+    <button id="clearMarksBtn">Clear Map</button>
+    <button id="undoBtn">Undo</button>
+</div>
 <textarea id="coordsOutput" rows="4" cols="50" readonly></textarea>
 <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
 <script>
-    var mymap = L.map('mapid').setView([40.751599, -73.976000], 13);
+    var mymap = L.map('mapid').setView([40.730826, -74.116944], 18);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19,
     }).addTo(mymap);
+
+
 
     var coordinates = [];
     var markers = [];
@@ -35,37 +80,79 @@
     var circleCenter = null;
     var currentCircleMarkers = []; // Markers for the current circle
     var allCirclesData = []; // Stores data for all circles
-    var allMarkers = []; // Stores all markers
+    var circleMarkers = []; // Stores all markers
     var allCircles = [];
+    var isDrawingPoint = false;
+    var isDrawingLine = false;
+    var isDrawingRefCircle = false;
+    var currentLineIndex = -1;
 
     // Global variables
     var operationHistory = [];
 
+    var wpt_icon = L.icon({
+    iconUrl: 'wpt.png', // Replace with your icon image URL
+    iconSize: [14, 14], // Size of the icon
+    iconAnchor: [7, 7], // Point of the icon which will correspond to marker's location
+    popupAnchor: [1, -34] // Point from which the popup should open relative to the iconAnchor
+    });
 
-function addOperation(type, data) {
-    operationHistory.push({ type, data });
-}
+    var holding_icon = L.icon({
+    iconUrl: 'holding.png', // Replace with your icon image URL
+    iconSize: [14, 14], // Size of the icon
+    iconAnchor: [7, 7], // Point of the icon which will correspond to marker's location
+    popupAnchor: [1, -34] // Point from which the popup should open relative to the iconAnchor
+    });
 
-// Undo the last operation
-function undoLastOperation() {
-    if (operationHistory.length === 0) return;
+    function addOperation(type, data) {
+        operationHistory.push({ type, data });
+    }
 
-    var lastOperation = operationHistory.pop();
-    switch (lastOperation.type) {
-        case 'addMarker':
-            mymap.removeLayer(lastOperation.data);
-            var markerIndex = markers.indexOf(lastOperation.data);
-            if (markerIndex > -1) {
-                markers.splice(markerIndex, 1);
-            }
-            break;
+
+    // Undo the last operation
+    function undoLastOperation() {
+        if (operationHistory.length === 0) return;
+
+        var lastOperation = operationHistory.pop();
+        switch (lastOperation.type) {
+            case 'addMarker':
+                mymap.removeLayer(lastOperation.data);
+                var markerIndex = markers.indexOf(lastOperation.data);
+                if (markerIndex > -1) {
+                    markers.splice(markerIndex, 1);
+                }
+                break;
+                
         case 'addLine':
-            mymap.removeLayer(lastOperation.data);
-            var markerIndex = lineMarkers.indexOf(lastOperation.data);
-            if (markerIndex > -1) {
-                lineMarkers.splice(markerIndex, 1);
+            if (lastOperation.data && mymap.hasLayer(lastOperation.data)) {
+                // Remove the last added marker from the map
+                mymap.removeLayer(lastOperation.data);
+
+                // Find which line the marker belongs to
+                let lineIndex = lineMarkers.findIndex(line => line.includes(lastOperation.data));
+                if (lineIndex > -1) {
+                    let markerIndex = lineMarkers[lineIndex].indexOf(lastOperation.data);
+                    if (markerIndex > -1) {
+                        // Remove the marker from lineMarkers array
+                        lineMarkers[lineIndex].splice(markerIndex, 1);
+
+                        // Update or remove the corresponding polyline
+                        if (lineMarkers[lineIndex].length > 1) {
+                            // Update the polyline with new set of markers
+                            let polylineCoordinates = lineMarkers[lineIndex].map(m => m.getLatLng());
+                            polylines[lineIndex].setLatLngs(polylineCoordinates);
+                        } else {
+                            // Remove the polyline if it's the last point in the line
+                            if (polylines[lineIndex] && mymap.hasLayer(polylines[lineIndex])) {
+                                mymap.removeLayer(polylines[lineIndex]);
+                                polylines.splice(lineIndex, 1);
+                            }
+                        }
+                    }
+                }
             }
             break;
+
         case 'addCircleWithPoints':
             // Remove the circle
             var circle = lastOperation.data.circle;
@@ -81,182 +168,321 @@ function undoLastOperation() {
                 pointsMarkers.forEach(marker => {
                     mymap.removeLayer(marker);
                     var markerIndex = pointsMarkers.indexOf(marker);
-                    if (markerIndex > -1) allMarkers.splice(markerIndex, 1);
+                    if (markerIndex > -1) circleMarkers.splice(markerIndex, 1);
                 });
             }
             break;
+
+        case 'addRefCircle':
+            var circle = lastOperation.data;
+            if (circle) {
+                mymap.removeLayer(circle);
+                var circleIndex = allCircles.indexOf(circle);
+                if (circleIndex > -1) allCircles.splice(circleIndex, 1);
+            }
+            break;
+        }
     }
-}
 
-function updateLineCoordsDisplay() {
-    var coordText = 'Line Points: ' + lineCoordinates.map(coord => `(${coord.lat.toFixed(6)}, ${coord.lng.toFixed(6)})`).join(', ');
-    document.getElementById('coordsOutput').value = coordText;
-}
+    function routeAction(button) {
+        isDrawingLine = !isDrawingLine;
 
-function calculateCirclePoints(center, radius, numberOfPoints) {
-    var points = [];
-    for (var i = 0; i < numberOfPoints; i++) {
-        var angle = i * (360 / numberOfPoints);
-        var radian = angle * (Math.PI / 180);
-        var lat = center.lat + (radius * Math.cos(radian)) / 111.32;
-        var lng = center.lng + (radius * Math.sin(radian)) / (111.32 * Math.cos(center.lat * (Math.PI / 180)));
-        points.push([lat, lng]);
+        if (isDrawingLine) {
+            // Start a new line
+            currentLineIndex++;
+            lineMarkers[currentLineIndex] = [];
+
+            button.style.backgroundColor = 'green';
+            button.style.color = 'white';
+
+            mymap.on('click', function(e) {
+                var marker = L.marker(e.latlng, {icon: wpt_icon}).addTo(mymap);
+                lineMarkers[currentLineIndex].push(marker); // Store the marker object
+                addOperation('addLine', marker);
+
+                if (lineMarkers[currentLineIndex].length > 1) {
+                    // Update the last polyline or create a new one
+                    var polylineCoordinates = lineMarkers[currentLineIndex].map(m => m.getLatLng());
+                    if (polylines[currentLineIndex]) {
+                        polylines[currentLineIndex].setLatLngs(polylineCoordinates);
+                    } else {
+                        var newPolyline = L.polyline(polylineCoordinates, {color: 'green'}).addTo(mymap);
+                        polylines[currentLineIndex] = newPolyline; // Store the polyline object
+                        addOperation('addLine', newPolyline);
+                    }
+                }
+            });
+        } else {
+            button.style.backgroundColor = '';
+            button.style.color = '';
+
+            mymap.off('click');
+        }
     }
-    return points;
-}
 
-function updateCirclePoints() {
+    function pinAction(button) {
+        isDrawingPoint = !isDrawingPoint;
+
+            if (isDrawingPoint) {
+                // Change button color to indicate active mode
+                button.style.backgroundColor = 'green';
+                button.style.color = 'white';
+
+            mymap.on('click', function(e) {
+                    var coord = e.latlng;
+                    var lat = coord.lat;
+                    var lng = coord.lng;
+                    var pointCoords = [lat, lng];
+                    coordinates.push(pointCoords);
+                    var marker = L.marker([lat, lng]).addTo(mymap);
+                    markers.push(marker);
+                    addOperation('addMarker', marker);
+                });
+            } else {
+                // Revert button color to indicate inactive mode
+                button.style.backgroundColor = '';
+                button.style.color = '';
+
+                mymap.off('click');
+            }
+    }
+
+    function calculateCirclePoints(center, radius, numberOfPoints) {
+        var points = [];
+        for (var i = 0; i < numberOfPoints; i++) {
+            var angle = i * (360 / numberOfPoints);
+            var radian = angle * (Math.PI / 180);
+            var lat = center.lat + (radius * Math.cos(radian)) / 111.32;
+            var lng = center.lng + (radius * Math.sin(radian)) / (111.32 * Math.cos(center.lat * (Math.PI / 180)));
+            points.push([lat, lng]);
+        }
+        return points;
+    }
+
+
+    function updateCirclePoints() {
         if (!circle) return;
-    var circleCenterCoords = circle.getLatLng();
-    var circleRadius = circle.getRadius() / 1000; // Convert radius to kilometers
+        var circleCenterCoords = circle.getLatLng();
+        var circleRadius = circle.getRadius() / 1000; // Convert radius to kilometers
 
-    if (circle) {
-        allCircles.push(circle);
+        if (circle) {
+            allCircles.push(circle);
+        }
+
+        // Assuming calculateCirclePoints is defined and works correctly
+        var circlePoints = calculateCirclePoints(circleCenterCoords, circleRadius, 8);
+
+        // Initialize an array to store markers for this specific circle
+        var thisCircleMarkers = [];
+
+        // Add center marker for the current circle
+        // var centerMarker = L.marker([circleCenterCoords.lat, circleCenterCoords.lng], {icon: holding_icon}).addTo(mymap);
+        // thisCircleMarkers.push(centerMarker);
+
+        // Add markers for circle points
+        circlePoints.forEach(point => {
+            var marker = L.marker([point[0], point[1]], {icon: holding_icon}).addTo(mymap);
+            thisCircleMarkers.push(marker);
+        });
+
+        // Add these markers to the global list
+
+        circleMarkers.push(...thisCircleMarkers);
+
+        // Record this operation with the circle and its specific markers
+        addOperation('addCircleWithPoints', { circle, markers: thisCircleMarkers });
     }
 
-    // Assuming calculateCirclePoints is defined and works correctly
-    var circlePoints = calculateCirclePoints(circleCenterCoords, circleRadius, 8);
 
-    // Initialize an array to store markers for this specific circle
-    var thisCircleMarkers = [];
-
-    // Add center marker for the current circle
-    var centerMarker = L.marker([circleCenterCoords.lat, circleCenterCoords.lng]).addTo(mymap);
-    thisCircleMarkers.push(centerMarker);
-
-    // Add markers for circle points
-    circlePoints.forEach(point => {
-        var marker = L.marker([point[0], point[1]]).addTo(mymap);
-        thisCircleMarkers.push(marker);
+    document.getElementById('addPointBtn').addEventListener('click', function() {
+        pinAction(this);
     });
 
-    // Add these markers to the global list
+    document.addEventListener('keypress', function(event) {
+        if (event.key === 'p' || event.key === 'P') {
+            var button = document.getElementById('addPointBtn');
+            pinAction(button);
+        }
+    });
 
-    allMarkers.push(...thisCircleMarkers);
+    document.getElementById('addLineBtn').addEventListener('click', function() {
+        routeAction(this);
+    });
 
-    // Record this operation with the circle and its specific markers
-    addOperation('addCircleWithPoints', { circle, markers: thisCircleMarkers });
-}
+    document.addEventListener('keypress', function(event) {
+        if (event.key === 'r' || event.key === 'R') {
+            var button = document.getElementById('addLineBtn');
+            routeAction(button);
+        }
+    });
 
-function updateAllCirclesOutput() {
-    var coordText = allCirclesData.map((circle, index) => {
-        var pointsText = circle.points.map(coord => `(${coord[0].toFixed(6)}, ${coord[1].toFixed(6)})`).join(', ');
-        return `Circle ${index + 1} - Center: (${circle.center[0].toFixed(6)}, ${circle.center[1].toFixed(6)}), Points: ${pointsText}`;
-    }).join('\n');
-    document.getElementById('coordsOutput').value = coordText;
-}
+    document.getElementById('drawCircleBtn').addEventListener('click', function() {
+        isDrawingCircle = !isDrawingCircle;
+
+        // Toggle button appearance
+        this.style.backgroundColor = isDrawingCircle ? 'green' : '';
+        this.style.color = isDrawingCircle ? 'white' : '';
+
+        if (isDrawingCircle) {
+            mymap.on('click', function(e) {
+                if (!e.latlng) return;
+
+                if (!circleCenter) {
+                    circleCenter = e.latlng;
+                    tempCircle = L.circle(circleCenter, { radius: 1 }).addTo(mymap);
+                    tempCircle.bindTooltip("Radius: 1 meter", { permanent: true, direction: 'top' })
+                             .openTooltip();
+                } else {
+                    // Finalize the circle and update points
+                    circle = tempCircle;
+                    tempCircle = null;
+                    updateCirclePoints(); // Update points and store data
+                    circleCenter = null; // Reset for next circle
+                    currentCircleMarkers = []; // Reset current markers for the next circle
+                }
+            });
+
+            mymap.on('mousemove', function(e) {
+                if (circleCenter && tempCircle && e.latlng) {
+                    var newRadius = circleCenter.distanceTo(e.latlng);
+                    tempCircle.setRadius(newRadius);
+                    tempCircle.setTooltipContent("Radius: " + newRadius.toFixed(2) + " meters");
+                }
+            });
+        } else {
+            mymap.off('click');
+            mymap.off('mousemove');
+        }
+    });
 
 
-var isDrawingPoint = false;
+    document.getElementById('drawRefCircleBtn').addEventListener('click', function() {
+        isDrawingRefCircle = !isDrawingRefCircle;
 
-document.getElementById('addPointBtn').addEventListener('click', function() {
-    isDrawingPoint = !isDrawingPoint;
+        // Toggle button appearance
+        this.style.backgroundColor = isDrawingRefCircle ? 'green' : '';
+        this.style.color = isDrawingRefCircle ? 'white' : '';
 
-    if (isDrawingPoint) {
-        // Change button color to indicate active mode
-        this.style.backgroundColor = 'green';
-        this.style.color = 'white';
+        if (isDrawingRefCircle) {
+            mymap.on('click', function(e) {
+                if (!e.latlng) return;
 
-    mymap.on('click', function(e) {
-            var coord = e.latlng;
-            var lat = coord.lat;
-            var lng = coord.lng;
-            var pointCoords = [lat, lng];
-            coordinates.push(pointCoords);
-            var marker = L.marker([lat, lng]).addTo(mymap);
-            markers.push(marker);
-            addOperation('addMarker', marker);
+                if (!circleCenter) {
+                    circleCenter = e.latlng;
+                    tempCircle = L.circle(circleCenter, {
+                        radius: 1,
+                        color: 'yellow',      
+                        fillColor: 'none', 
+                    }).addTo(mymap);
+                    // Initialize tooltip for the circle
+                    tempCircle.bindTooltip("Radius: 1 meter", { permanent: true, direction: 'bottom' })
+                             .openTooltip();
+
+                    addOperation('addRefCircle', tempCircle);
+                } else {
+                    // Finalize the circle and update points
+                    circle = tempCircle;
+                    tempCircle = null;
+                    circleCenter = null; // Reset for next circle
+                    currentCircleMarkers = []; // Reset current markers for the next circle
+                }
+            });
+
+            mymap.on('mousemove', function(e) {
+                if (circleCenter && tempCircle && e.latlng) {
+                    var newRadius = circleCenter.distanceTo(e.latlng);
+                    tempCircle.setRadius(newRadius);
+                    // Update tooltip content with the new radius
+                    tempCircle.setTooltipContent("Radius: " + newRadius.toFixed(2) + " meters");
+                    allCircles.push(tempCircle);
+                }
+            });
+        } else {
+            mymap.off('click');
+            mymap.off('mousemove');
+        }
+    });
+
+
+    document.getElementById('undoBtn').addEventListener('click', undoLastOperation);
+
+
+    document.getElementById('showCoordsBtn').addEventListener('click', function() {
+        var markerCoords = markers.map(marker => marker.getLatLng());
+        var lineMarkerCoords = [];
+        var circleMarkerCoords = circleMarkers.map(marker => marker.getLatLng());
+
+        // Add line markers' coordinates
+        lineMarkers.forEach((line, index) => {
+            var coords = line.map(marker => marker.getLatLng()); // Extract coordinates from marker objects
+            var formattedCoords = coords.map(coord => `[${coord.lat.toFixed(6)}, ${coord.lng.toFixed(6)}]`).join(', ');
+            lineMarkerCoords.push(`"route_${index + 1}": [${formattedCoords}]`);
         });
-    } else {
-        // Revert button color to indicate inactive mode
-        this.style.backgroundColor = '';
-        this.style.color = '';
 
-        mymap.off('click');
-    }
-});
+        // Format coordinates for display
+        var formatCoords = (coords) => coords.map(coord => `(${coord.lat.toFixed(6)}, ${coord.lng.toFixed(6)})`).join(', ');
 
-var isDrawingLine = false;
+        var coordText = `{"marks": [${formatCoords(markerCoords)}], "routes": {${lineMarkerCoords.join(', ')}}, "holding": [${formatCoords(circleMarkerCoords)}]}`;
+        document.getElementById('coordsOutput').value = coordText;
+    });
 
-document.getElementById('addLineBtn').addEventListener('click', function() {
-    isDrawingLine = !isDrawingLine;
+    document.getElementById('saveCoordsBtn').addEventListener('click', function() {
+        var markerCoords = markers.map(marker => marker.getLatLng());
+        var lineMarkerCoords = [];
+        var circleMarkerCoords = circleMarkers.map(marker => marker.getLatLng());
 
-    if (isDrawingLine) {
-        // Change button color to indicate active mode
-        this.style.backgroundColor = 'green';
-        this.style.color = 'white';
-
-        // Reset lineCoordinates for a new line
-        lineCoordinates = [];
-
-        mymap.on('click', function(e) {
-            lineCoordinates.push(e.latlng);
-            var marker = L.marker(e.latlng).addTo(mymap);
-            lineMarkers.push(marker);
-            addOperation('addLine', marker);
-            updateLineCoordsDisplay();
-
-            if (lineCoordinates.length > 1) {
-                // Create a new polyline for each new line segment
-                var newPolyline = L.polyline(lineCoordinates, {color: 'green'}).addTo(mymap);
-                polylines.push(newPolyline); // Store the polyline
-                addOperation('addLine', newPolyline);
-            }
+        // Add line markers' coordinates
+        lineMarkers.forEach((line, index) => {
+            var coords = line.map(marker => marker.getLatLng()); // Extract coordinates from marker objects
+            var formattedCoords = coords.map(coord => `[${coord.lat.toFixed(6)}, ${coord.lng.toFixed(6)}]`).join(', ');
+            lineMarkerCoords.push(`"route_${index + 1}": [${formattedCoords}]`);
         });
-    } else {
-        // Revert button color to indicate inactive mode
-        this.style.backgroundColor = '';
-        this.style.color = '';
 
-        mymap.off('click');
-    }
-});
+        // Format coordinates for display
+        var formatCoords = (coords) => coords.map(coord => `(${coord.lat.toFixed(6)}, ${coord.lng.toFixed(6)})`).join(', ');
 
-document.getElementById('undoBtn').addEventListener('click', undoLastOperation);
+        var coordText = `{"marks": [${formatCoords(markerCoords)}], "routes": {${lineMarkerCoords.join(', ')}}, "holding": [${formatCoords(circleMarkerCoords)}]}`;
+        var blob = new Blob([coordText], { type: 'text/plain' });
 
-document.getElementById('showCoordsBtn').addEventListener('click', function() {
-    var allCoords = [];
+        // Create a download link
+        var downloadLink = document.createElement('a');
+        downloadLink.href = window.URL.createObjectURL(blob);
+        downloadLink.download = 'coordinates.txt'; // Name of the file
 
-    // Add individual markers' coordinates
-    markers.forEach(marker => allCoords.push(marker.getLatLng()));
+        // Append the link to the document and trigger a click
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
 
-    // Add line markers' coordinates
-    lineMarkers.forEach(marker => allCoords.push(marker.getLatLng()));
+        // Remove the link after download
+        document.body.removeChild(downloadLink);
+        document.getElementById('coordsOutput').value = coordText;
+    });
 
-    // Add circle markers' coordinates if needed
-    allMarkers.forEach(marker => allCoords.push(marker.getLatLng()));
-
-    // Format coordinates for display
-    var coordText = 'All Coordinates: ' + allCoords.map(coord => `(${coord.lat.toFixed(6)}, ${coord.lng.toFixed(6)})`).join(', ');
-    document.getElementById('coordsOutput').value = coordText;
-});
-
-document.getElementById('clearMarksBtn').addEventListener('click', function() {
+    document.getElementById('clearMarksBtn').addEventListener('click', function() {
     allCircles.forEach(circle => mymap.removeLayer(circle));
     allCircles = [];
     tempCircle = [];
-    // Clear individual markers
-    if (markers) {
+
+    // Clear markers
+    if (markers && markers.length > 0) {
         markers.forEach(marker => mymap.removeLayer(marker));
         markers = [];
     }
 
     // Clear line markers
-    if (lineMarkers) {
-        lineMarkers.forEach(marker => mymap.removeLayer(marker));
-        lineMarkers = [];
+    lineMarkers.forEach(line => {
+        line.forEach(marker => mymap.removeLayer(marker));
+    });
+    lineMarkers = [];
+
+    // Clear circle markers
+    if (circleMarkers && circleMarkers.length > 0) {
+        circleMarkers.forEach(marker => mymap.removeLayer(marker));
+        circleMarkers = [];
     }
 
-
-    // Also clear all markers stored in allMarkers
-    if (allMarkers) {
-        allMarkers.forEach(marker => mymap.removeLayer(marker));
-        allMarkers = [];
-    }
-
-
-    // Clear polylines (lines)
-    if (polylines) {
+    // Clear polylines
+    if (polylines && polylines.length > 0) {
         polylines.forEach(polyline => mymap.removeLayer(polyline));
         polylines = [];
     }
@@ -271,6 +497,7 @@ document.getElementById('clearMarksBtn').addEventListener('click', function() {
     if (coordinates) {
         coordinates = [];
     }
+    
     if (lineCoordinates) {
         lineCoordinates = [];
     }
@@ -280,41 +507,6 @@ document.getElementById('clearMarksBtn').addEventListener('click', function() {
 });
 
 
-document.getElementById('drawCircleBtn').addEventListener('click', function() {
-    isDrawingCircle = !isDrawingCircle;
-
-    // Toggle button appearance
-    this.style.backgroundColor = isDrawingCircle ? 'green' : '';
-    this.style.color = isDrawingCircle ? 'white' : '';
-
-    if (isDrawingCircle) {
-        mymap.on('click', function(e) {
-            if (!e.latlng) return;
-
-            if (!circleCenter) {
-                circleCenter = e.latlng;
-                tempCircle = L.circle(circleCenter, { radius: 1 }).addTo(mymap);
-            } else {
-                // Finalize the circle and update points
-                circle = tempCircle;
-                tempCircle = null;
-                updateCirclePoints(); // Update points and store data
-                circleCenter = null; // Reset for next circle
-                currentCircleMarkers = []; // Reset current markers for the next circle
-            }
-        });
-
-        mymap.on('mousemove', function(e) {
-            if (circleCenter && tempCircle && e.latlng) {
-                var newRadius = circleCenter.distanceTo(e.latlng);
-                tempCircle.setRadius(newRadius);
-            }
-        });
-    } else {
-        mymap.off('click');
-        mymap.off('mousemove');
-    }
-});
 
 </script>
 </body>
