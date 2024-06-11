@@ -1,0 +1,76 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+
+\title{Air Taxi Optimization Problem}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Formulation}
+
+\subsection{Decision Variables}
+\begin{itemize}
+    \item $x_{ijk}^t$: Binary variable indicating if flight $k$ is scheduled from vertiport $i$ to vertiport $j$ at time $t$.
+    \item $z_p$: Binary variable indicating if passenger $p$ is served.
+    \item $y_i^t$: Integer variable indicating the number of aircraft present at vertiport $i$ at time $t$.
+    \item $p_{ik}^t$: Binary variable indicating if aircraft $k$ is parked at vertiport $i$ at time $t$.
+\end{itemize}
+
+\subsection{Objective}
+Maximize the number of passengers served:
+\[
+\text{Maximize} \quad \sum_{p \in P} z_p
+\]
+
+\subsection{Constraints}
+
+\subsubsection{Gates constraint at each vertiport}
+\[
+y_i^t \leq G_i \quad \forall i \in V, \forall t \in T
+\]
+
+\subsubsection{Aircraft presence at vertiports over time}
+\[
+y_i^{t+1} = y_i^t + \sum_{j \in V, j \neq i} \sum_{k \in A} x_{jik}^{t-f_{ji}} - \sum_{j \in V, j \neq i} \sum_{k \in A} x_{ijk}^t \quad \forall i \in V, \forall t \in T
+\]
+
+\subsubsection{Total aircraft constraint (initial distribution of aircraft among vertiports)}
+\[
+\sum_{i \in V} y_i^0 = A
+\]
+
+\subsubsection{Passenger capacity constraint for each flight}
+\[
+\sum_{p \in P} x_{o_p, d_p, k, t} \leq S \quad \forall i, j, k, t
+\]
+This constraint ensures that the number of passengers assigned to any flight does not exceed the aircraft's capacity of 4 seats.
+
+\subsubsection{Passenger timing constraint (passenger can select aircraft within 30 minutes of arrival)}
+\[
+z_p \leq \sum_{k \in A} \sum_{t \in [t_p - 0.5, t_p + 0.5]} x_{o_p, d_p, k, t} \quad \forall p \in P
+\]
+
+\subsubsection{Flight scheduling constraint considering flying and charging times}
+\[
+x_{ijk}^t + x_{jil}^{t+f_{ij}+c} \leq 1 \quad \forall i, j, k, l, t
+\]
+This ensures an aircraft cannot be scheduled for another flight immediately without considering flying and charging times.
+
+\subsubsection{Ensure aircraft that arrive must depart or park}
+\[
+p_{ik}^{t+1} = p_{ik}^t + \sum_{j \in V, j \neq i} x_{jik}^{t-f_{ji}} - \sum_{j \in V, j \neq i} x_{ijk}^t \quad \forall i, k, t
+\]
+This constraint ensures that for each aircraft $k$ arriving at vertiport $i$ at time $t$, there must be a corresponding departure from vertiport $i$ or it remains parked there.
+
+\subsubsection{Prevent scheduling flights with the same origin and destination vertiport}
+\[
+x_{iik}^t = 0 \quad \forall i, k, t
+\]
+This constraint ensures that no flight is scheduled with the same origin and destination vertiport.
+
+\end{document}
